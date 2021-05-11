@@ -209,7 +209,7 @@ typedef struct MPU_SETTINGS
 
 /* Scheduler utilities. */
 
-#define portYIELD()    __asm volatile ( "	SVC	%0	\n"::"i" ( portSVC_YIELD ) : "memory" )
+#define portYIELD()    __asm volatile ( "    SVC    %0    \n"::"i" ( portSVC_YIELD ) : "memory" )
 #define portYIELD_WITHIN_API()                          \
     {                                                   \
         /* Set a PendSV to request a context switch. */ \
@@ -222,6 +222,11 @@ typedef struct MPU_SETTINGS
 #define portNVIC_PENDSVSET_BIT    ( 1UL << 28UL )
 #define portEND_SWITCHING_ISR( xSwitchRequired )    if( xSwitchRequired != pdFALSE ) portYIELD_WITHIN_API()
 #define portYIELD_FROM_ISR( x )                     portEND_SWITCHING_ISR( x )
+
+
+/* Masks off all bits but the VECTACTIVE bits in the ICSR register. */
+#define portVECTACTIVE_MASK       ( 0xFFUL )
+
 /*-----------------------------------------------------------*/
 
 /* Architecture specific optimisations. */
@@ -308,6 +313,100 @@ portFORCE_INLINE static BaseType_t xPortIsInsideInterrupt( void )
     return xReturn;
 }
 
+
+/*-----------------------------------------------------------*/
+
+portFORCE_INLINE static void vPortEnterCritical( void )
+{
+    extern volatile UBaseType_t uxCriticalNesting;
+    BaseType_t xRunningPrivileged;
+
+    __asm volatile
+    (
+        " mrs r0, control  \n"        /* r0 = CONTROL. */
+        " tst r0, #1       \n"        /* Perform r0 & 1 (bitwise AND) and update the conditions flag. */
+        " ite ne           \n"
+        " movne %0, #0     \n"        /* CONTROL[0]!=0. Return false to indicate that the processor is not privileged. */
+        " moveq %0, #1     \n"        /* CONTROL[0]==0. Return true to indicate that the processor is privileged. */
+        : "=r"( xRunningPrivileged ) :: "r0", "memory"
+    );
+
+    /* If the processor is not already privileged, raise privilege. */
+    if( xRunningPrivileged == pdFALSE )
+    {
+        __asm volatile ( "svc %0 \n" ::"i" ( portSVC_RAISE_PRIVILEGE ) : "memory" );
+    }
+
+    portDISABLE_INTERRUPTS();
+    uxCriticalNesting++;
+
+    if( xRunningPrivileged == pdFALSE )
+    {
+        __asm volatile
+        (
+            "mrs r0, control   \n"        /* r0 = CONTROL. */
+            "orr r0, r0, #1    \n"        /* r0 = r0 | 1. */
+            "msr control, r0   \n"        /* CONTROL = r0. */
+            ::: "r0", "memory"
+        );
+    }
+
+
+    /* This is not the interrupt safe version of the enter critical function so
+     * assert() if it is being called from an interrupt context.  Only API
+     * functions that end in "FromISR" can be used in an interrupt.  Only assert if
+     * the critical nesting count is 1 to protect against recursive calls if the
+     * assert function also uses a critical section. */
+    if( uxCriticalNesting == 1 )
+    {
+        configASSERT( ( portNVIC_INT_CTRL_REG & portVECTACTIVE_MASK ) == 0 );
+    }
+}
+
+/*-----------------------------------------------------------*/
+
+portFORCE_INLINE static void vPortExitCritical( void )
+{
+    extern volatile UBaseType_t uxCriticalNesting;
+    BaseType_t xRunningPrivileged;
+
+    __asm volatile
+    (
+        " mrs r0, control  \n"        /* r0 = CONTROL. */
+        " tst r0, #1       \n"        /* Perform r0 & 1 (bitwise AND) and update the conditions flag. */
+        " ite ne           \n"
+        " movne %0, #0     \n"        /* CONTROL[0]!=0. Return false to indicate that the processor is not privileged. */
+        " moveq %0, #1     \n"        /* CONTROL[0]==0. Return true to indicate that the processor is privileged. */
+        : "=r"( xRunningPrivileged ) :: "r0", "memory"
+    );
+
+    /* If the processor is not already privileged, raise privilege. */
+    if( xRunningPrivileged == pdFALSE )
+    {
+        /*_RB_ Is it ever valid to call this function and not already be
+        privileged? */
+        __asm volatile ( "svc %0 \n" ::"i" ( portSVC_RAISE_PRIVILEGE ) : "memory" );
+    }
+
+    configASSERT( uxCriticalNesting );
+    uxCriticalNesting--;
+
+    if( uxCriticalNesting == 0 )
+    {
+        portENABLE_INTERRUPTS();
+    }
+
+    if( xRunningPrivileged == pdFALSE )
+    {
+        __asm volatile
+        (
+            "mrs r0, control   \n"        /* r0 = CONTROL. */
+            "orr r0, r0, #1    \n"        /* r0 = r0 | 1. */
+            "msr control, r0   \n"        /* CONTROL = r0. */
+            ::: "r0", "memory"
+        );
+    }
+}
 
 /*-----------------------------------------------------------*/
 

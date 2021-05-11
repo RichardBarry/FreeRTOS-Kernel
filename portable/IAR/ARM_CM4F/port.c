@@ -85,9 +85,6 @@
 #define portPRIORITY_GROUP_MASK               ( 0x07UL << 8UL )
 #define portPRIGROUP_SHIFT                    ( 8UL )
 
-/* Masks off all bits but the VECTACTIVE bits in the ICSR register. */
-#define portVECTACTIVE_MASK                   ( 0xFFUL )
-
 /* Constants required to manipulate the VFP. */
 #define portFPCCR                             ( ( volatile uint32_t * ) 0xe000ef34 ) /* Floating point context control register. */
 #define portASPEN_AND_LSPEN_BITS              ( 0x3UL << 30UL )
@@ -139,7 +136,7 @@ static void prvTaskExitError( void );
 
 /* Each task maintains its own interrupt status in the critical nesting
  * variable. */
-static UBaseType_t uxCriticalNesting = 0xaaaaaaaa;
+volatile UBaseType_t uxCriticalNesting = 0xaaaaaaaa;
 
 /*
  * The number of SysTick increments that make up one tick period.
@@ -337,35 +334,6 @@ void vPortEndScheduler( void )
     /* Not implemented in ports where there is nothing to return to.
      * Artificially force an assert. */
     configASSERT( uxCriticalNesting == 1000UL );
-}
-/*-----------------------------------------------------------*/
-
-void vPortEnterCritical( void )
-{
-    portDISABLE_INTERRUPTS();
-    uxCriticalNesting++;
-
-    /* This is not the interrupt safe version of the enter critical function so
-     * assert() if it is being called from an interrupt context.  Only API
-     * functions that end in "FromISR" can be used in an interrupt.  Only assert if
-     * the critical nesting count is 1 to protect against recursive calls if the
-     * assert function also uses a critical section. */
-    if( uxCriticalNesting == 1 )
-    {
-        configASSERT( ( portNVIC_INT_CTRL_REG & portVECTACTIVE_MASK ) == 0 );
-    }
-}
-/*-----------------------------------------------------------*/
-
-void vPortExitCritical( void )
-{
-    configASSERT( uxCriticalNesting );
-    uxCriticalNesting--;
-
-    if( uxCriticalNesting == 0 )
-    {
-        portENABLE_INTERRUPTS();
-    }
 }
 /*-----------------------------------------------------------*/
 

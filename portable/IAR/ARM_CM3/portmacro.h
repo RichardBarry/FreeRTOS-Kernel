@@ -98,6 +98,9 @@
     #define portEND_SWITCHING_ISR( xSwitchRequired )    if( xSwitchRequired != pdFALSE ) portYIELD()
     #define portYIELD_FROM_ISR( x )                     portEND_SWITCHING_ISR( x )
 
+    /* Masks off all bits but the VECTACTIVE bits in the ICSR register. */
+    #define portVECTACTIVE_MASK       ( 0xFFUL )
+
 /*-----------------------------------------------------------*/
 
 /* Architecture specific optimisations. */
@@ -190,6 +193,41 @@
         }
 
         return xReturn;
+    }
+
+/*-----------------------------------------------------------*/
+
+    portFORCE_INLINE static void vPortEnterCritical( void )
+    {
+        extern volatile UBaseType_t uxCriticalNesting;
+
+        portDISABLE_INTERRUPTS();
+        uxCriticalNesting++;
+
+        /* This is not the interrupt safe version of the enter critical function so
+         * assert() if it is being called from an interrupt context.  Only API
+         * functions that end in "FromISR" can be used in an interrupt.  Only assert if
+         * the critical nesting count is 1 to protect against recursive calls if the
+         * assert function also uses a critical section. */
+        if( uxCriticalNesting == 1 )
+        {
+            configASSERT( ( portNVIC_INT_CTRL_REG & portVECTACTIVE_MASK ) == 0 );
+        }
+    }
+
+    /*-----------------------------------------------------------*/
+
+    portFORCE_INLINE static void vPortExitCritical( void )
+    {
+        extern volatile UBaseType_t uxCriticalNesting;
+
+        configASSERT( uxCriticalNesting );
+        uxCriticalNesting--;
+
+        if( uxCriticalNesting == 0 )
+        {
+            portENABLE_INTERRUPTS();
+        }
     }
 
 /*-----------------------------------------------------------*/

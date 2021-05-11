@@ -111,9 +111,6 @@
 #define portPRIORITY_GROUP_MASK                   ( 0x07UL << 8UL )
 #define portPRIGROUP_SHIFT                        ( 8UL )
 
-/* Masks off all bits but the VECTACTIVE bits in the ICSR register. */
-#define portVECTACTIVE_MASK                       ( 0xFFUL )
-
 /* Constants required to manipulate the VFP. */
 #define portFPCCR                                 ( ( volatile uint32_t * ) 0xe000ef34 ) /* Floating point context control register. */
 #define portASPEN_AND_LSPEN_BITS                  ( 0x3UL << 30UL )
@@ -199,7 +196,7 @@ extern void vPortResetPrivilege( BaseType_t xRunningPrivileged );
 
 /* Each task maintains its own interrupt status in the critical nesting
  * variable. */
-static UBaseType_t uxCriticalNesting = 0xaaaaaaaa;
+volatile UBaseType_t uxCriticalNesting = 0xaaaaaaaa;
 
 /*
  * Used by the portASSERT_IF_INTERRUPT_PRIORITY_INVALID() macro to ensure
@@ -303,9 +300,9 @@ void vPortSVCHandler_C( uint32_t * pulParam )
                     {
                         __asm volatile
                         (
-                            "	mrs r1, control		\n"/* Obtain current control value. */
-                            "	bic r1, r1, #1		\n"/* Set privilege bit. */
-                            "	msr control, r1		\n"/* Write back new control value. */
+                            "    mrs r1, control        \n"/* Obtain current control value. */
+                            "    bic r1, r1, #1        \n"/* Set privilege bit. */
+                            "    msr control, r1        \n"/* Write back new control value. */
                             ::: "r1", "memory"
                         );
                     }
@@ -315,9 +312,9 @@ void vPortSVCHandler_C( uint32_t * pulParam )
                 case portSVC_RAISE_PRIVILEGE:
                     __asm volatile
                     (
-                        "	mrs r1, control		\n"/* Obtain current control value. */
-                        "	bic r1, r1, #1		\n"/* Set privilege bit. */
-                        "	msr control, r1		\n"/* Write back new control value. */
+                        "    mrs r1, control        \n"/* Obtain current control value. */
+                        "    bic r1, r1, #1        \n"/* Set privilege bit. */
+                        "    msr control, r1        \n"/* Write back new control value. */
                         ::: "r1", "memory"
                     );
                     break;
@@ -440,44 +437,6 @@ void vPortEndScheduler( void )
     /* Not implemented in ports where there is nothing to return to.
      * Artificially force an assert. */
     configASSERT( uxCriticalNesting == 1000UL );
-}
-/*-----------------------------------------------------------*/
-
-void vPortEnterCritical( void )
-{
-    BaseType_t xRunningPrivileged = xPortRaisePrivilege();
-
-    portDISABLE_INTERRUPTS();
-    uxCriticalNesting++;
-
-    vPortResetPrivilege( xRunningPrivileged );
-
-    /* This is not the interrupt safe version of the enter critical function so
-     * assert() if it is being called from an interrupt context.  Only API
-     * functions that end in "FromISR" can be used in an interrupt.  Only assert if
-     * the critical nesting count is 1 to protect against recursive calls if the
-     * assert function also uses a critical section. */
-    if( uxCriticalNesting == 1 )
-    {
-        configASSERT( ( portNVIC_INT_CTRL_REG & portVECTACTIVE_MASK ) == 0 );
-    }
-}
-/*-----------------------------------------------------------*/
-
-void vPortExitCritical( void )
-{
-    BaseType_t xRunningPrivileged = xPortRaisePrivilege();
-
-    configASSERT( uxCriticalNesting );
-
-    uxCriticalNesting--;
-
-    if( uxCriticalNesting == 0 )
-    {
-        portENABLE_INTERRUPTS();
-    }
-
-    vPortResetPrivilege( xRunningPrivileged );
 }
 /*-----------------------------------------------------------*/
 
@@ -737,10 +696,10 @@ void vPortStoreTaskMPUSettings( xMPU_SETTINGS * xMPUSettings,
              * be set to a value equal to or numerically *higher* than
              * configMAX_SYSCALL_INTERRUPT_PRIORITY.
              *
-             * Interrupts that	use the FreeRTOS API must not be left at their
-             * default priority of	zero as that is the highest possible priority,
+             * Interrupts that    use the FreeRTOS API must not be left at their
+             * default priority of    zero as that is the highest possible priority,
              * which is guaranteed to be above configMAX_SYSCALL_INTERRUPT_PRIORITY,
-             * and	therefore also guaranteed to be invalid.
+             * and    therefore also guaranteed to be invalid.
              *
              * FreeRTOS maintains separate thread and ISR API functions to ensure
              * interrupt entry is as fast and simple as possible.
