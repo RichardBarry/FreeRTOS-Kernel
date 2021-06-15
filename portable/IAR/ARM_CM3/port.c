@@ -102,6 +102,22 @@
     #define configKERNEL_INTERRUPT_PRIORITY    255
 #endif
 
+/* Constants used to set up the MPU to prevent code executing from RAM. */
+#define portMPU_REGION_READ_WRITE             ( 0x03UL << 24UL )
+#define portMPU_REGION_CACHEABLE_BUFFERABLE   ( 0x07UL << 16UL )
+#define portMPU_REGION_EXECUTE_NEVER          ( 0x01UL << 28UL )
+#define portMPU_TYPE_REG                      ( *( ( volatile uint32_t * ) 0xe000ed90 ) )
+#define portMPU_REGION_BASE_ADDRESS_REG       ( *( ( volatile uint32_t * ) 0xe000ed9C ) )
+#define portMPU_REGION_ATTRIBUTE_REG          ( *( ( volatile uint32_t * ) 0xe000edA0 ) )
+#define portMPU_CTRL_REG                      ( *( ( volatile uint32_t * ) 0xe000ed94 ) )
+#define portEXPECTED_MPU_TYPE_VALUE           ( 8UL << 8UL ) /* 8 regions, unified. */
+#define portMPU_ENABLE                        ( 0x01UL )
+#define portMPU_BACKGROUND_ENABLE             ( 1UL << 2UL )
+#define portMPU_REGION_VALID                  ( 0x10UL )
+#define portMPU_REGION_ENABLE                 ( 0x01UL )
+#define portNVIC_SYS_CTRL_STATE_REG           ( *( ( volatile uint32_t * ) 0xe000ed24 ) )
+#define portNVIC_MEM_FAULT_ENABLE             ( 1UL << 16UL )
+
 /*
  * Setup the timer to generate the tick interrupts.  The implementation in this
  * file is weak to allow application writers to change the timer used to
@@ -123,6 +139,13 @@ extern void vPortStartFirstTask( void );
  * Used to catch tasks that attempt to return from their implementing function.
  */
 static void prvTaskExitError( void );
+
+/*
+ * Return the smallest MPU region size that a given number of bytes will fit
+ * into.  The region size is returned as the value that should be programmed
+ * into the region attribute register for that region.
+ */
+static uint32_t prvGetMPURegionSizeSetting( uint32_t ulActualSizeInBytes ) PRIVILEGED_FUNCTION;
 
 /*-----------------------------------------------------------*/
 
@@ -351,6 +374,58 @@ void xPortSysTickHandler( void )
         }
     }
     portENABLE_INTERRUPTS();
+}
+/*-----------------------------------------------------------*/
+
+static uint32_t prvGetMPURegionSizeSetting( uint32_t ulActualSizeInBytes )
+{
+    uint32_t ulRegionSize, ulReturnValue = 4;
+
+    /* 32 is the smallest region size, 31 is the largest valid value for
+     * ulReturnValue. */
+    for( ulRegionSize = 32UL; ulReturnValue < 31UL; ( ulRegionSize <<= 1UL ) )
+    {
+        if( ulActualSizeInBytes <= ulRegionSize )
+        {
+            break;
+        }
+        else
+        {
+            ulReturnValue++;
+        }
+    }
+
+    /* Shift the code by one before returning so it can be written directly
+     * into the the correct bit position of the attribute register. */
+    return( ulReturnValue << 1UL );
+}
+/*-----------------------------------------------------------*/
+
+void vPortSetExeceuteNeverRegion( uint32_t ulMPURegionToUse, uint32_t ulRegionStartAddress, uint32_t ulRegionEndAddress )
+{
+	configASSERT( portMPU_TYPE_REG == portEXPECTED_MPU_TYPE_VALUE );
+
+    /* Check the expected MPU is present. */
+    if( portMPU_TYPE_REG == portEXPECTED_MPU_TYPE_VALUE )
+    {
+        /* Setup the privileged data RAM region.  This is where the kernel data
+         * is placed. */
+        portMPU_REGION_BASE_ADDRESS_REG = ( ulRegionStartAddress ) | /* Base address. */
+                                          ( portMPU_REGION_VALID ) |
+                                          ( ulMPURegionToUse );
+
+        portMPU_REGION_ATTRIBUTE_REG = portMPU_REGION_EXECUTE_NEVER |
+                                       portMPU_REGION_READ_WRITE |
+                                       portMPU_REGION_CACHEABLE_BUFFERABLE |
+                                       prvGetMPURegionSizeSetting( ulRegionEndAddress - ulRegionStartAddress ) |
+                                       ( portMPU_REGION_ENABLE );
+
+        /* Enable the memory fault exception. */
+        portNVIC_SYS_CTRL_STATE_REG |= portNVIC_MEM_FAULT_ENABLE;
+
+        /* Enable the MPU with the background region configured. */
+        portMPU_CTRL_REG |= ( portMPU_ENABLE | portMPU_BACKGROUND_ENABLE );
+    }
 }
 /*-----------------------------------------------------------*/
 
