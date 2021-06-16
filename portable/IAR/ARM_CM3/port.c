@@ -103,9 +103,6 @@
 #endif
 
 /* Constants used to set up the MPU to prevent code executing from RAM. */
-#define portMPU_REGION_READ_WRITE             ( 0x03UL << 24UL )
-#define portMPU_REGION_CACHEABLE_BUFFERABLE   ( 0x07UL << 16UL )
-#define portMPU_REGION_EXECUTE_NEVER          ( 0x01UL << 28UL )
 #define portMPU_TYPE_REG                      ( *( ( volatile uint32_t * ) 0xe000ed90 ) )
 #define portMPU_REGION_BASE_ADDRESS_REG       ( *( ( volatile uint32_t * ) 0xe000ed9C ) )
 #define portMPU_REGION_ATTRIBUTE_REG          ( *( ( volatile uint32_t * ) 0xe000edA0 ) )
@@ -139,13 +136,6 @@ extern void vPortStartFirstTask( void );
  * Used to catch tasks that attempt to return from their implementing function.
  */
 static void prvTaskExitError( void );
-
-/*
- * Return the smallest MPU region size that a given number of bytes will fit
- * into.  The region size is returned as the value that should be programmed
- * into the region attribute register for that region.
- */
-static uint32_t prvGetMPURegionSizeSetting( uint32_t ulActualSizeInBytes ) PRIVILEGED_FUNCTION;
 
 /*-----------------------------------------------------------*/
 
@@ -377,47 +367,36 @@ void xPortSysTickHandler( void )
 }
 /*-----------------------------------------------------------*/
 
-static uint32_t prvGetMPURegionSizeSetting( uint32_t ulActualSizeInBytes )
+void vPortSetMPURegion( uint32_t ulMPURegionToUse,
+                        uint32_t ulMPURegionAttributes,
+                        uint32_t ulRegionStartAddress,
+                        uint32_t ulRegionEndAddress )
 {
-    uint32_t ulRegionSize, ulReturnValue = 4;
+uint32_t ulRegionSize = ulRegionEndAddress - ulRegionStartAddress;
+const uint32_t ulMinimumRegionSize = 32UL;
 
-    /* 32 is the smallest region size, 31 is the largest valid value for
-     * ulReturnValue. */
-    for( ulRegionSize = 32UL; ulReturnValue < 31UL; ( ulRegionSize <<= 1UL ) )
-    {
-        if( ulActualSizeInBytes <= ulRegionSize )
-        {
-            break;
-        }
-        else
-        {
-            ulReturnValue++;
-        }
-    }
-
-    /* Shift the code by one before returning so it can be written directly
-     * into the the correct bit position of the attribute register. */
-    return( ulReturnValue << 1UL );
-}
-/*-----------------------------------------------------------*/
-
-void vPortSetExeceuteNeverRegion( uint32_t ulMPURegionToUse, uint32_t ulRegionStartAddress, uint32_t ulRegionEndAddress )
-{
 	configASSERT( portMPU_TYPE_REG == portEXPECTED_MPU_TYPE_VALUE );
+
+	/* Check region size is a power of 2 and greater than the minimum allowed. */
+	configASSERT( ulRegionSize >= ulMinimumRegionSize );
+	configASSERT( ( ulRegionSize & ( ulRegionSize - 1 ) ) == 0 );
 
     /* Check the expected MPU is present. */
     if( portMPU_TYPE_REG == portEXPECTED_MPU_TYPE_VALUE )
     {
+		/* Disable the MPU before updating. */
+		portMPU_CTRL_REG &= ~portMPU_ENABLE;
+		__asm volatile( "dsb" );
+		__asm volatile( "isb" );
+
         /* Setup the privileged data RAM region.  This is where the kernel data
          * is placed. */
         portMPU_REGION_BASE_ADDRESS_REG = ( ulRegionStartAddress ) | /* Base address. */
                                           ( portMPU_REGION_VALID ) |
                                           ( ulMPURegionToUse );
 
-        portMPU_REGION_ATTRIBUTE_REG = portMPU_REGION_EXECUTE_NEVER |
-                                       portMPU_REGION_READ_WRITE |
-                                       portMPU_REGION_CACHEABLE_BUFFERABLE |
-                                       prvGetMPURegionSizeSetting( ulRegionEndAddress - ulRegionStartAddress ) |
+        portMPU_REGION_ATTRIBUTE_REG = ulMPURegionAttributes |
+                                       ulRegionSize |
                                        ( portMPU_REGION_ENABLE );
 
         /* Enable the memory fault exception. */

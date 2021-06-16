@@ -142,6 +142,34 @@
     #define portCLEAR_INTERRUPT_MASK_FROM_ISR( x )    __set_BASEPRI( x )
 /*-----------------------------------------------------------*/
 
+/* MPU configuration. */
+
+    #define portMPU_REGION_READ_WRITE             ( 0x03UL << 24UL )
+    #define portMPU_REGION_CACHEABLE_BUFFERABLE   ( 0x07UL << 16UL )
+    #define portMPU_REGION_EXECUTE_NEVER          ( 0x01UL << 28UL )
+
+    /*
+     * Used to configure an MPU region.   Called by helper macros in port specific
+     * portmacro.h header files.
+     */
+    void vPortSetMPURegion( uint32_t ulMPURegionToUse,
+                            uint32_t ulMPURegionAttributes,
+                            uint32_t ulRegionStartAddress,
+                            uint32_t ulRegionEndAddress );
+
+    /*
+     * Prevent buffer overflow and similar attacks by preventing code executing from
+     * RAM.
+     */
+    #define portEXECUTE_NEVER_RAM_REGION_ATTRIBUTES ( portMPU_REGION_EXECUTE_NEVER |                  \
+                                                      portMPU_REGION_READ_WRITE |                     \
+                                                      portMPU_REGION_CACHEABLE_BUFFERABLE )
+
+    #define vPortSetExecuteNeverRegion( ulMPURegionToUse, ulRegionStartAddress, ulRegionEndAddress )  \
+                vPortSetMPURegion( ( ulMPURegionToUse ), ( portEXECUTE_NEVER_RAM_REGION_ATTRIBUTES ), ( ulRegionStartAddress ), ( ulRegionEndAddress ) )
+
+/*-----------------------------------------------------------*/
+
 /* Tickless idle/low power functionality. */
     #ifndef portSUPPRESS_TICKS_AND_SLEEP
         extern void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime );

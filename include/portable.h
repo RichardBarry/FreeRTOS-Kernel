@@ -214,14 +214,6 @@ void vPortEndScheduler( void ) PRIVILEGED_FUNCTION;
                                     uint32_t ulStackDepth ) PRIVILEGED_FUNCTION;
 #endif
 
-/*
- * Prevent buffer overflow and similar attacks by preventing code executing from
- * RAM.
- */
-void vPortSetExeceuteNeverRegion( uint32_t ulMPURegionToUse,
-                                  uint32_t ulRegionStartAddress,
-                                  uint32_t ulRegionEndAddress );
-
 /* *INDENT-OFF* */
 #ifdef __cplusplus
     }
